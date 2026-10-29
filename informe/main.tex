@@ -1,0 +1,860 @@
+% ============================================================
+% Informe final — Analizador sintáctico LL(1) para un DSL
+% Proyecto: Gallinero inteligente — INFO1148, Teoría de la Computación
+% Compilar: pdflatex main.tex (dos pasadas para la TOC)
+% ============================================================
+\documentclass[12pt,a4paper]{article}
+
+% --- Codificación e idioma ---
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-tabla]{babel}
+
+% --- Márgenes y utilidades ---
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  pdftitle={Informe final: Analizador sintáctico LL(1) para un DSL},
+  pdfauthor={Tomás Curihual, Rodrigo Gutierrez, Carlos Huenuman},
+}
+
+% --- Configuración de bloques de código ---
+\definecolor{fondocodigo}{gray}{0.96}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{fondocodigo},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  rulecolor=\color{gray!60},
+  literate=
+    {└──}{{`--}}1
+    {├──}{{|--}}1
+    {└}{{`}}1
+    {├}{{|}}1
+    {─}{{-}}1
+    {á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+    {ñ}{{\~n}}1 {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1
+    {Ú}{{\'U}}1 {Ñ}{{\~N}}1
+    {Σ}{{\ensuremath{\Sigma}}}1
+    {ε}{{\ensuremath{$\varepsilon$}}}1,
+}
+
+% --- Entornos rápidos ---
+
+\title{ \\
+  \vspace{1.5cm}
+  {\Huge \textbf{Analizador sintáctico LL(1) para un DSL}} \\
+  \vspace{0.4cm}
+  {\LARGE Autómata de un gallinero inteligente} \\
+  \vspace{2cm}
+  {\large Proyecto grupal --- Teoría de la Computación (INFO1148)} \\
+  {\large Universidad Católica de Temuco} \\
+  \vspace{1.5cm}
+}
+\author{
+  Tomás Curihual \and
+  Rodrigo Gutierrez \and
+  Carlos Huenuman
+}
+\date{Octubre de 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+Este documento describe el diseño e implementación de un analizador
+sintáctico predictivo LL(1) para un lenguaje de dominio específico (DSL)
+declarativo orientado a automatizar un gallinero inteligente. El informe
+recorre el dominio elegido, la especificación del lenguaje, la gramática
+libre de contexto, su análisis (recursión, factorización y ambigüedad), los
+conjuntos FIRST y FOLLOW, la tabla predictiva, el parser por descenso
+recursivo implementado a mano, la construcción del árbol de sintaxis
+abstracta (AST), el manejo de errores sintácticos y la matriz de 46 casos
+de prueba. La gramática final es estrictamente LL(1) y toda la
+implementación coincide con la especificación documentada en el
+repositorio del proyecto.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =====================================================
+\section{Introducción y dominio}
+% =====================================================
+
+\subsection{Contexto y problema}
+Un gallinero de pequeña escala exige tareas repetitivas y sensibles al
+entorno: abrir la puerta por la mañana y cerrarla al anochecer, vigilar la
+temperatura y la humedad, reponer alimento y agua, y detectar movimiento de
+posibles depredadores. Estas decisiones pueden expresarse como reglas simples
+del tipo \emph{«si ocurre una condición, ejecutar una acción»}, lo que las
+hace ideales para un lenguaje declarativo.
+
+\subsection{Propósito}
+El proyecto diseña e implementa un lenguaje de dominio específico (DSL) y su
+analizador sintáctico predictivo \textbf{LL(1)}. El operador escribe reglas
+legibles y un controlador las evaluaría cíclicamente para accionar la puerta,
+la iluminación, la ventilación, el comedero, el bebedero y la alarma. El
+analizador valida que el programa cumpla la sintaxis, construye el árbol de
+sintaxis abstracta (AST) y reporta errores con mensajes contextuales que
+indican línea, columna y qué se esperaba.
+
+\subsection{Elección del dominio}
+Se compararon tres alternativas: un \textbf{gallinero inteligente}, un
+\textbf{acuario o estanque} y un \textbf{sistema de riego}. Se eligió el
+gallinero inteligente porque:
+
+\begin{itemize}
+  \item Tiene sensores y actuadores fáciles de identificar y explicar.
+  \item Permite reglas naturales con valores numéricos y booleanos.
+  \item Se adapta a la forma \texttt{WHEN <condición> THEN <accion>;}
+  \item Tiene relevancia regional y originalidad sin aumentar la complejidad
+        sintáctica.
+  \item Facilita ejemplos válidos, inválidos y casos límite comprensibles.
+\end{itemize}
+
+\subsection{Alcance}
+La versión base del lenguaje permite una o más reglas, comparaciones entre
+sensores y valores, combinación con \texttt{AND}, \texttt{OR} y \texttt{NOT},
+y una acción por regla. La \textbf{extensión creativa} permite varias acciones
+por regla separadas por comas, manteniendo compatibilidad total con la base.
+Quedan fuera del lenguaje los paréntesis, los comentarios, las acciones con
+parámetros, las variables y el control de flujo. La validez sintáctica no
+verifica la existencia real de sensores ni la compatibilidad de tipos: eso es
+validación semántica y está fuera del alcance.
+
+% =====================================================
+\section{Especificación del lenguaje}
+% =====================================================
+
+\subsection{Alfabeto}
+El alfabeto del lenguaje es:
+
+\begin{lstlisting}
+Σ = { A-Z, a-z, 0-9, _, espacio, tab, salto de linea, retorno de carro, >, <, =, !, ;, , }
+\end{lstlisting}
+
+No se incluyen paréntesis, puntos, guiones, comillas, caracteres acentuados ni
+el símbolo \texttt{\#}. Los caracteres \texttt{=} y \texttt{!} solo aparecen
+como parte de los operadores relacionales compuestos (\texttt{==},
+\texttt{!=}). Los identificadores son ASCII: se escribe \texttt{lampara}, no
+\texttt{lámpara}.
+
+\subsection{Categorías de tokens}
+\begin{table}[h!]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Categoría} & \textbf{Tokens} & \textbf{Patrón} & \textbf{Ejemplo} \\
+\midrule
+Estructural & \texttt{WHEN}, \texttt{THEN} & reservadas & \texttt{WHEN} \\
+Lógico      & \texttt{AND}, \texttt{OR}, \texttt{NOT} & reservadas & \texttt{AND} \\
+Booleano    & \texttt{TRUE}, \texttt{FALSE} & reservadas & \texttt{TRUE} \\
+Identificador & \texttt{ID} & \texttt{[A-Za-z\_][A-Za-z0-9\_]*} & \texttt{humedad} \\
+Número      & \texttt{NUM} & \texttt{[0-9]+} & \texttt{100} \\
+Relacional  & \texttt{OP\_REL} & \texttt{>= <= == != > <} & \texttt{>=} \\
+Separador   & \texttt{COMA} & \texttt{,} & \texttt{,} \\
+Terminador  & \texttt{PUNTO\_COMA} & \texttt{;} & \texttt{;} \\
+Fin de entrada & \texttt{EOF} & interno & --- \\
+Ignorado    & \texttt{ESPACIO} & blancos & --- \\
+Error       & \texttt{ERROR} & otros & \texttt{@} \\
+\bottomrule
+\end{tabular}
+\caption{Categorías de tokens del lenguaje.}
+\label{tab:tokens}
+\end{table}
+
+\subsection{Convenciones léxicas}
+\begin{itemize}
+  \item Las palabras reservadas se reconocen sin distinguir mayúsculas de
+        minúsculas, aunque por convención se escriben en mayúsculas.
+  \item Los identificadores sí distinguen mayúsculas y no pueden coincidir
+        con una palabra reservada.
+  \item Los operadores relacionales se reconocen por la coincidencia más
+        larga (\texttt{maximal munch}): \texttt{>=} antes que \texttt{>}.
+  \item Un \texttt{=} aislado no es un token válido; la igualdad es
+        \texttt{==}. Cualquier símbolo no reconocido produce un token de
+        error léxico.
+\end{itemize}
+
+\subsection{Palabras reservadas e identificadores del dominio}
+El lenguaje tiene siete palabras reservadas: \texttt{WHEN}, \texttt{THEN},
+\texttt{AND}, \texttt{OR}, \texttt{NOT}, \texttt{TRUE} y \texttt{FALSE}.
+
+Los identificadores cubren el vocabulario del dominio: sensores numéricos
+(\texttt{luz}, \texttt{temperatura}, \texttt{humedad}, \texttt{nivel\_alimento},
+\texttt{nivel\_agua}), sensores booleanos (\texttt{movimiento},
+\texttt{puerta\_cerrada}, \texttt{ventilacion}, \texttt{alarma\_activa}),
+actuadores (\texttt{puerta}, \texttt{lampara}, \texttt{ventilador},
+\texttt{calefactor}, \texttt{comedero}, \texttt{bebedero}, \texttt{alarma}),
+verbos de acción (\texttt{abrir}, \texttt{cerrar}, \texttt{encender},
+\texttt{apagar}, \texttt{activar}, \texttt{desactivar}, \texttt{notificar}) y
+el destinatario \texttt{dueno}. Los verbos y destinatarios son
+\emph{identificadores}, no palabras reservadas: sintácticamente una acción
+solo requiere la forma \texttt{ID ID}.
+
+\subsection{Valores, operadores y separadores}
+\begin{itemize}
+  \item \texttt{NUM}: entero no negativo de uno o más dígitos. No hay
+        negativos, decimales ni cadenas.
+  \item Nueve operadores: seis relacionales (\texttt{> < >= <= == !=}) y tres
+        lógicos (\texttt{AND}, \texttt{OR}, \texttt{NOT}).
+  \item El punto y coma \texttt{;} termina cada regla y es obligatorio.
+        La coma \texttt{,} separa acciones dentro de una regla y no puede
+        aparecer en ninguna otra posición.
+\end{itemize}
+
+\subsection{Precedencia y restricciones de las comparaciones}
+\begin{itemize}
+  \item \texttt{NOT} tiene mayor precedencia que \texttt{AND}, y
+        \texttt{AND} mayor que \texttt{OR}.
+  \item Cada comparación tiene exactamente un operador relacional, la forma
+        \texttt{ID OP\_REL valor}. No hay comparaciones encadenadas
+        (\texttt{luz < 100 < 200}) ni entre dos identificadores.
+\end{itemize}
+
+\subsection{Composición de programas}
+Un programa contiene una o más reglas; cada regla termina obligatoriamente en
+\texttt{;} y tiene al menos una acción. Una acción es un verbo seguido de un
+dispositivo, y las reglas con varias acciones las ejecutan de izquierda a
+derecha. No se admiten reglas vacías, comas colgantes ni comas consecutivas.
+Ejemplo válido:
+
+\begin{lstlisting}
+WHEN temperatura > 30 THEN encender ventilador, abrir puerta;
+\end{lstlisting}
+
+\subsection{Extensión creativa: múltiples acciones por regla}
+La versión base restringía cada regla a una sola acción. La extensión elegida
+permite una \emph{rutina} de acciones separadas por comas:
+
+\begin{lstlisting}
+WHEN condicion THEN accion, accion, ... ;
+\end{lstlisting}
+
+Se evaluaron también los paréntesis, \texttt{ELSE} y las acciones con
+duración; se optó por múltiples acciones por su encaje con el dominio, su
+bajo impacto en la gramática LL(1) y la facilidad de integrarla en parser,
+AST y pruebas. La extensión es retrocompatible: toda regla de la base sigue
+siendo válida porque una lista puede tener un solo elemento. Su verificación
+LL(1) se detalla en la sección~\ref{sec:tabla-ll1}.
+
+% =====================================================
+\section{Gramática libre de contexto}
+% =====================================================
+
+\subsection{Formalización}
+La gramática se define como la cuádrupla
+$G = (N, \Sigma, P, S)$, con $S = $ \texttt{programa} como símbolo inicial.
+Los terminales son los tokens del lexer (tabla~\ref{tab:tokens}, incluido
+\texttt{EOF}) y los no terminales son:
+
+\begin{lstlisting}
+programa, lista_reglas, lista_reglas_prima, regla, condicion, cond_or,
+cond_or_prima, cond_and, cond_and_prima, factor, comparacion, valor,
+acciones, acciones_prima, accion
+\end{lstlisting}
+
+El sufijo \texttt{\_prima} caracteriza la continuación recursiva de cada
+regla, técnica habitual para eliminar la recursión por la izquierda.
+
+\subsection{Producciones (BNF)}
+\begin{lstlisting}
+programa           ::= lista_reglas EOF
+
+lista_reglas       ::= regla lista_reglas_prima
+
+lista_reglas_prima ::= regla lista_reglas_prima
+                    | epsilon
+
+regla              ::= WHEN condicion THEN acciones PUNTO_COMA
+
+condicion          ::= cond_or
+
+cond_or            ::= cond_and cond_or_prima
+
+cond_or_prima      ::= OR cond_and cond_or_prima
+                    | epsilon
+
+cond_and           ::= factor cond_and_prima
+
+cond_and_prima     ::= AND factor cond_and_prima
+                    | epsilon
+
+factor             ::= NOT comparacion
+                    | comparacion
+
+comparacion        ::= ID OP_REL valor
+
+valor              ::= NUM
+                    | TRUE
+                    | FALSE
+
+acciones           ::= accion acciones_prima
+
+acciones_prima     ::= COMA accion acciones_prima
+                    | epsilon
+
+accion             ::= ID ID
+\end{lstlisting}
+
+La gramática deliberadamente \emph{no} usa las notaciones EBNF
+(\texttt{+}, \texttt{*}, \texttt{?}): así puede traducirse directamente al
+parser predictivo. La forma compacta equivalente
+(\texttt{lista\_reglas\_prima} como \texttt{regla*}, etc.) es equivalente y
+se conserva como documentación.
+
+\subsection{Precedencia forzada estructuralmente}
+La jerarquía de no terminales fija la precedencia: \texttt{NOT} se aplica a
+la comparación que sigue (nivel \texttt{factor}), \texttt{AND} agrupa
+factores (nivel \texttt{cond\_and}) y \texttt{OR} es el operador de menor
+precedencia (nivel \texttt{cond\_or}).
+
+\subsection{Propiedades}
+\begin{itemize}
+  \item \textbf{Sin reglas vacías:} \texttt{programa} exige al menos una
+        regla, y \texttt{regla} exige al menos una acción.
+  \item \textbf{Sin comas colgantes ni consecutivas:} después de
+        \texttt{COMA} siempre debe venir una \texttt{accion}.
+  \item \textbf{Sin comparaciones encadenadas:} \texttt{comparacion} tiene
+        un único \texttt{OP\_REL}.
+  \item \textbf{Recursión por la derecha:} toda la repetición usa
+        producciones \texttt{\_prima} con recursión derecha, compatible con
+        el análisis predictivo LL(1).
+  \item \textbf{Derivaciones de ejemplo:} en el repositorio
+        (\texttt{docs/gramatica.md}) se documentan las derivaciones completas
+        de \texttt{WHEN luz < 100 THEN abrir puerta;}, de una regla con dos
+        acciones y de una condición con \texttt{AND}, \texttt{OR} y
+        \texttt{NOT}.
+\end{itemize}
+
+% =====================================================
+\section{Análisis de la gramática}
+% =====================================================
+
+\subsection{Recursión por la izquierda}
+La gramática original no presenta recursión por la izquierda, ni directa ni
+indirecta. Sus producciones recursivas (\texttt{cond\_or\_prima},
+\texttt{cond\_and\_prima}, \texttt{acciones\_prima}) ya eran recursivas por
+la derecha, y la factorización agregó \texttt{lista\_reglas\_prima} del mismo
+tipo. Todo el conjunto es compatible con el análisis predictivo LL(1).
+
+\subsection{Factorización por la izquierda}
+La producción \texttt{lista\_reglas} de la gramática previa presentaba un
+conflicto FIRST/FIRST:
+
+\begin{lstlisting}
+lista_reglas ::= regla lista_reglas
+              | regla
+\end{lstlisting}
+
+Ambas alternativas comienzan con el no terminal \texttt{regla}, cuyo FIRST es
+$\{$\texttt{WHEN}$\}$. Se extrajo el factor común y se introdujo
+\texttt{lista\_reglas\_prima}:
+
+\begin{lstlisting}
+lista_reglas       ::= regla lista_reglas_prima
+lista_reglas_prima ::= regla lista_reglas_prima | epsilon
+\end{lstlisting}
+
+Este es el único cambio requerido por la extensión de múltiples acciones
+respecto del análisis de la versión base; el resto de la gramática ya estaba
+factorizada.
+
+\subsection{Ambigüedad}
+La gramática final \textbf{no es ambigua}. La precedencia de los operadores
+lógicos está forzada estructuralmente mediante niveles de derivación
+(\texttt{NOT} en \texttt{factor}, \texttt{AND} en \texttt{cond\_and},
+\texttt{OR} en \texttt{cond\_or}), y la asociatividad queda garantizada por
+la recursión por la derecha. Para \texttt{AND} y \texttt{OR}, operadores
+matemáticamente asociativos, la forma de agrupación del árbol no altera el
+valor de verdad de la condición.
+
+\subsection{Verificación LL(1) de la extensión}
+Para la lista de acciones, \texttt{FIRST(acciones\_prima)} =
+$\{$\texttt{COMA}, $\epsilon\}$ y \texttt{FOLLOW(acciones\_prima)} =
+$\{$\texttt{PUNTO\_COMA}$\}$. Como \texttt{COMA} no pertenece al FOLLOW y
+\texttt{PUNTO\_COMA} no pertenece al FIRST, las alternativas tienen FIRST
+disjuntos y \textbf{no hay conflicto LL(1)}; tampoco se introduce recursión
+izquierda ni ambigüedad nueva.
+
+% =====================================================
+\section{FIRST y FOLLOW}
+% =====================================================
+
+Los conjuntos se calcularon sobre la gramática factorizada, con recursión por
+la derecha ($\epsilon$ indica la producción vacía).
+
+\subsection{Conjuntos FIRST}
+\begin{table}[h!]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{No terminal} & \textbf{FIRST} \\
+\midrule
+\texttt{programa}            & \{$\;\texttt{WHEN}\;\}$ \\
+\texttt{lista\_reglas}       & \{$\;\texttt{WHEN}\;\}$ \\
+\texttt{lista\_reglas\_prima}& \{$\;\texttt{WHEN}, \epsilon\;\}$ \\
+\texttt{regla}               & \{$\;\texttt{WHEN}\;\}$ \\
+\texttt{condicion}           & \{$\;\texttt{NOT}, \texttt{ID}\;\}$ \\
+\texttt{cond\_or}            & \{$\;\texttt{NOT}, \texttt{ID}\;\}$ \\
+\texttt{cond\_or\_prima}     & \{$\;\texttt{OR}, \epsilon\;\}$ \\
+\texttt{cond\_and}           & \{$\;\texttt{NOT}, \texttt{ID}\;\}$ \\
+\texttt{cond\_and\_prima}    & \{$\;\texttt{AND}, \epsilon\;\}$ \\
+\texttt{factor}              & \{$\;\texttt{NOT}, \texttt{ID}\;\}$ \\
+\texttt{comparacion}         & \{$\;\texttt{ID}\;\}$ \\
+\texttt{valor}               & \{$\;\texttt{NUM}, \texttt{TRUE}, \texttt{FALSE}\;\}$ \\
+\texttt{acciones}            & \{$\;\texttt{ID}\;\}$ \\
+\texttt{acciones\_prima}     & \{$\;\texttt{COMA}, \epsilon\;\}$ \\
+\texttt{accion}              & \{$\;\texttt{ID}\;\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Conjuntos FIRST de la gramática factorizada.}
+\label{tab:first}
+\end{table}
+
+\subsection{Conjuntos FOLLOW}
+\begin{table}[h!]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{No terminal} & \textbf{FOLLOW} \\
+\midrule
+\texttt{programa}            & \{$\;\texttt{EOF}\;\}$ \\
+\texttt{lista\_reglas}       & \{$\;\texttt{EOF}\;\}$ \\
+\texttt{lista\_reglas\_prima}& \{$\;\texttt{EOF}\;\}$ \\
+\texttt{regla}               & \{$\;\texttt{WHEN}, \texttt{EOF}\;\}$ \\
+\texttt{condicion}           & \{$\;\texttt{THEN}\;\}$ \\
+\texttt{cond\_or}            & \{$\;\texttt{THEN}\;\}$ \\
+\texttt{cond\_or\_prima}     & \{$\;\texttt{THEN}\;\}$ \\
+\texttt{cond\_and}           & \{$\;\texttt{OR}, \texttt{THEN}\;\}$ \\
+\texttt{cond\_and\_prima}    & \{$\;\texttt{OR}, \texttt{THEN}\;\}$ \\
+\texttt{factor}              & \{$\;\texttt{AND}, \texttt{OR}, \texttt{THEN}\;\}$ \\
+\texttt{comparacion}         & \{$\;\texttt{AND}, \texttt{OR}, \texttt{THEN}\;\}$ \\
+\texttt{valor}               & \{$\;\texttt{AND}, \texttt{OR}, \texttt{THEN}\;\}$ \\
+\texttt{acciones}            & \{$\;\texttt{PUNTO\_COMA}\;\}$ \\
+\texttt{acciones\_prima}     & \{$\;\texttt{PUNTO\_COMA}\;\}$ \\
+\texttt{accion}              & \{$\;\texttt{COMA}, \texttt{PUNTO\_COMA}\;\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Conjuntos FOLLOW de la gramática factorizada.}
+\label{tab:follow}
+\end{table}
+
+\subsection{Observaciones}
+\begin{itemize}
+  \item \texttt{FOLLOW(programa)} $= \{\texttt{EOF}\}$: el análisis termina
+        cuando la entrada se agota.
+  \item \texttt{FOLLOW(regla)} $= \{\texttt{WHEN}, \texttt{EOF}\}$: después
+        de una regla puede comenzar otra regla o terminar el programa.
+  \item \texttt{FOLLOW(accion)} $= \{\texttt{COMA},
+        \texttt{PUNTO\_COMA}\}$: refleja directamente la extensión de
+        múltiples acciones, que decide si la lista continúa o termina.
+\end{itemize}
+
+% =====================================================
+\section{Tabla LL(1)}
+\label{sec:tabla-ll1}
+% =====================================================
+
+La tabla predictiva mapea cada par (no terminal, token) a la producción a
+aplicar. Se construyó a partir de los conjuntos FIRST y FOLLOW de las
+tablas~\ref{tab:first} y~\ref{tab:follow}: una producción se agrega en la
+celda $(A, a)$ si $a \in \text{FIRST}(\alpha)$, o en todas las celdas
+$(A, b)$ con $b \in \text{FOLLOW}(A)$ si $\alpha \Rightarrow^* \epsilon$.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{No terminal} & \textbf{Token} & \textbf{Producción} \\
+\midrule
+\texttt{programa}            & \texttt{WHEN}         & \texttt{programa ::= lista\_reglas EOF} \\
+\texttt{lista\_reglas}       & \texttt{WHEN}         & \texttt{lista\_reglas ::= regla lista\_reglas\_prima} \\
+\texttt{lista\_reglas\_prima}& \texttt{WHEN}         & \texttt{lista\_reglas\_prima ::= regla lista\_reglas\_prima} \\
+\texttt{lista\_reglas\_prima}& \texttt{EOF}          & \texttt{lista\_reglas\_prima ::= epsilon} \\
+\texttt{regla}               & \texttt{WHEN}         & \texttt{regla ::= WHEN condicion THEN acciones PUNTO\_COMA} \\
+\texttt{condicion}           & \texttt{NOT}, \texttt{ID} & \texttt{condicion ::= cond\_or} \\
+\texttt{cond\_or}            & \texttt{NOT}, \texttt{ID} & \texttt{cond\_or ::= cond\_and cond\_or\_prima} \\
+\texttt{cond\_or\_prima}     & \texttt{OR}           & \texttt{cond\_or\_prima ::= OR cond\_and cond\_or\_prima} \\
+\texttt{cond\_or\_prima}     & \texttt{THEN}         & \texttt{cond\_or\_prima ::= epsilon} \\
+\texttt{cond\_and}           & \texttt{NOT}, \texttt{ID} & \texttt{cond\_and ::= factor cond\_and\_prima} \\
+\texttt{cond\_and\_prima}    & \texttt{AND}          & \texttt{cond\_and\_prima ::= AND factor cond\_and\_prima} \\
+\texttt{cond\_and\_prima}    & \texttt{OR}, \texttt{THEN} & \texttt{cond\_and\_prima ::= epsilon} \\
+\texttt{factor}              & \texttt{NOT}          & \texttt{factor ::= NOT comparacion} \\
+\texttt{factor}              & \texttt{ID}           & \texttt{factor ::= comparacion} \\
+\texttt{comparacion}         & \texttt{ID}           & \texttt{comparacion ::= ID OP\_REL valor} \\
+\texttt{valor}               & \texttt{NUM}          & \texttt{valor ::= NUM} \\
+\texttt{valor}               & \texttt{TRUE}         & \texttt{valor ::= TRUE} \\
+\texttt{valor}               & \texttt{FALSE}        & \texttt{valor ::= FALSE} \\
+\texttt{acciones}            & \texttt{ID}           & \texttt{acciones ::= accion acciones\_prima} \\
+\texttt{acciones\_prima}     & \texttt{COMA}         & \texttt{acciones\_prima ::= COMA accion acciones\_prima} \\
+\texttt{acciones\_prima}     & \texttt{PUNTO\_COMA}  & \texttt{acciones\_prima ::= epsilon} \\
+\texttt{accion}              & \texttt{ID}           & \texttt{accion ::= ID ID} \\
+\bottomrule
+\end{tabular}
+\caption{Tabla de análisis predictivo LL(1).}
+\label{tab:ll1}
+\end{table}
+
+Las celdas vacías (intersecciones no listadas) corresponden a errores
+sintácticos. La tabla es \textbf{estrictamente LL(1)}: tras la factorización
+no existe ningún par (no terminal, token) con más de una producción, de modo
+que el parser siempre puede predecir la derivación correcta con un único
+token de anticipación (\emph{lookahead}).
+
+% =====================================================
+\section{Diseño e implementación del parser}
+% =====================================================
+
+\subsection{Decisiones generales}
+El parser se implementa \textbf{a mano}, por \textbf{descenso recursivo},
+siguiendo exactamente la tabla de la sección~\ref{sec:tabla-ll1}: cada no
+terminal corresponde a un método. No se usa ningún generador automático de
+parsers ni bibliotecas externas (el proyecto usa solo la biblioteca estándar
+de Python). La implementación reside en \texttt{src/lexer.py} y
+\texttt{src/parser.py}. Esta decisión fue deliberada: escribir el descenso
+recursivo directamente desde la tabla garantiza la trazabilidad entre
+gramática, tabla y código, y obliga a entender cada producción durante la
+implementación.
+
+\subsection{Pipeline de análisis}
+El proceso tiene tres etapas:
+\begin{enumerate}
+  \item El \textbf{lexer} (\texttt{src/lexer.py}) convierte la cadena en una
+        lista de tokens terminada en \texttt{EOF}. Reconoce reservadas sin
+        distinguir mayúsculas, usa \emph{maximal munch} para los operadores
+        relacionales, ignora blancos y marca con \texttt{ERROR} los símbolos
+        no pertenecientes al alfabeto.
+  \item El \textbf{parser} (\texttt{src/parser.py}) recibe la lista de
+        tokens y la recorre con un solo token de anticipación
+        (\texttt{self.actual}). El método \texttt{consumir(tipo)} verifica
+        que el token actual sea del tipo esperado o reporta el error.
+  \item \textbf{Concurrente con el análisis}, el parser construye el AST
+        (sección~\ref{sec:ast}): los métodos de producción no solo consumen
+        tokens, también devuelven nodos.
+\end{enumerate}
+
+\subsection{Estructura del módulo parser}
+La correspondencia gramática--métodos es directa:
+\begin{table}[h!]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Producción} & \textbf{Método en \texttt{Parser}} \\
+\midrule
+\texttt{programa}            & \texttt{programa()} \\
+\texttt{lista\_reglas}       & \texttt{lista\_reglas()} \\
+\texttt{lista\_reglas\_prima}& \texttt{lista\_reglas\_prima()} \\
+\texttt{regla}               & \texttt{regla()} \\
+\texttt{condicion / cond\_or}& \texttt{condicion()} / \texttt{cond\_or()} \\
+\texttt{cond\_or\_prima}     & \texttt{cond\_or\_prima(izq)} \\
+\texttt{cond\_and}           & \texttt{cond\_and()} \\
+\texttt{cond\_and\_prima}    & \texttt{cond\_and\_prima(izq)} \\
+\texttt{factor}              & \texttt{factor()} \\
+\texttt{comparacion}         & \texttt{comparacion()} \\
+\texttt{valor}               & \texttt{valor()} \\
+\texttt{acciones}            & \texttt{acciones()} \\
+\texttt{acciones\_prima}     & \texttt{acciones\_prima(accs)} \\
+\texttt{accion}              & \texttt{accion()} \\
+\bottomrule
+\end{tabular}
+\caption{Correspondencia entre producciones y métodos del parser.}
+\label{tab:parser-metodos}
+\end{table}
+
+Los métodos \texttt{\_prima} reciben el subárbol construido hasta el momento
+y lo extienden hacia la derecha, replicando la recursión derecha de la
+gramática y agrupando las operaciones binarias \texttt{AND}/\texttt{OR} de
+izquierda a derecha.
+
+\subsection{Uso desde la línea de comandos}
+El analizador recibe el programa como argumento:
+\begin{lstlisting}
+python src/parser.py "WHEN luz < 100 THEN abrir puerta;"
+\end{lstlisting}
+Devuelve el código \texttt{0} si la entrada es válida (e imprime el árbol),
+\texttt{1} ante cualquier entrada inválida (incluidos los símbolos no
+reconocidos por el lexer, que llegan al parser como token \texttt{ERROR}), y
+\texttt{2} si no se pasa ningún argumento. Estos códigos permiten que las
+pruebas por matriz y la suite de \texttt{unittest} verifiquen también el
+comportamiento completo de la línea de comandos.
+
+% =====================================================
+\section{Árbol sintáctico / AST}
+\label{sec:ast}
+% =====================================================
+
+\subsection{Diseño de nodos}
+El AST se define en \texttt{src/arbol.py} con seis clases: \texttt{NodoAST}
+(base), \texttt{Programa} (lista de reglas), \texttt{Regla} (una condición y
+una \emph{lista ordenada} de acciones), \texttt{Comparacion}
+(\texttt{ID OP\_REL valor}), \texttt{OperacionBinaria} (\texttt{AND},
+\texttt{OR}) y \texttt{OperacionUnaria} (\texttt{NOT}). Cada nodo sabe
+imprimirse jerárquicamente, lo que permite inspeccionar el resultado del
+parser desde la consola.
+
+El diseño es deliberadamente \emph{abstracto}: los nodos del AST no contienen
+los delimitadores \texttt{WHEN} y \texttt{THEN} (que son estructura, no
+información) y las listas de reglas y acciones se materializan como listas de
+Python durante el análisis. Esta información coincide con la gramática: cada
+nodo corresponde a un no terminal \emph{significativo} de la gramática de la
+sección 3.
+
+\subsection{Ejemplos}
+Para la entrada \texttt{WHEN temperatura > 30 THEN encender ventilador, abrir
+puerta;} el parser produce (la salida se muestra tal como la imprime el
+módulo en consola, con las ramas del árbol):
+
+\begin{lstlisting}
+Entrada sintácticamente válida. Árbol generado:
+└── Programa
+  ├── Regla (WHEN ... THEN ...)
+    ├── Condicion:
+      └── Comparacion: temperatura > 30
+    └── Acciones:
+      └── Accion: encender ventilador
+      └── Accion: abrir puerta
+\end{lstlisting}
+
+Para una condición compuesta como \texttt{WHEN movimiento == TRUE AND NOT
+alarma\_activa == TRUE THEN activar alarma;} la salida evidencia la
+precedencia estructural descrita en la sección~\ref{sec:tabla-ll1}: el
+\texttt{AND} agrupa a nivel superior la comparación y la negación:
+
+\begin{lstlisting}
+Entrada sintácticamente válida. Árbol generado:
+└── Programa
+  ├── Regla (WHEN ... THEN ...)
+    ├── Condicion:
+      ├── Operador Binario: AND
+        └── Comparacion: movimiento == TRUE
+        ├── Operador Unario: NOT
+          └── Comparacion: alarma_activa == TRUE
+    └── Acciones:
+      └── Accion: activar alarma
+\end{lstlisting}
+
+\subsection{Impresión portable}
+La impresión del árbol dibuja las ramas con caracteres de caja Unicode (los
+mismos que se observan al ejecutar el programa en una consola compatible) y,
+para no depender de la codificación del terminal, el módulo reconfigura sus
+flujos de salida con \texttt{errors="replace"}. Así se evita el error
+\texttt{UnicodeEncodeError} en terminales Windows configuradas con la página
+de códigos \texttt{cp1252} (que no soporta esos símbolos): reproducir los
+árboles solo depende de Python, no del terminal del lector.
+
+% =====================================================
+\section{Manejo de errores}
+% =====================================================
+
+\subsection{Filosofía}
+Los errores se centralizan en \texttt{src/errores.py} mediante la excepción
+\texttt{ErrorSintactico}. El análisis no continúa tras el primer error
+(\emph{panic} simple): se levanta la excepción con la posición exacta del
+token problemático y el programa termina con código \texttt{1}. Dado que el
+lexer marca con el token \texttt{ERROR} los símbolos ajenos al alfabeto
+(declarándolos en la fase léxica) y los entrega al parser, toda la detección
+se reporta bajo la interfaz común de \texttt{ErrorSintactico}; de este modo se
+conserva una única responsabilidad en mensajes y la suite de pruebas verifica
+el comportamiento completo (mensaje, posición y código de salida).
+
+\subsection{Características de los mensajes}
+\begin{itemize}
+  \item \textbf{Posición precisa:} línea y columna del token que disparó el
+        error.
+  \item \textbf{Traducción técnica $\to$ humano:} el token se describe en
+        vocabulario natural (\texttt{EOF} $\to$ «el final de la entrada»,
+        \texttt{ID} $\to$ «el identificador '\emph{lexema}'», etc.).
+  \item \textbf{Mensajes contextuales:} el mensaje indica \emph{qué se
+        esperaba}: «se esperaba la palabra reservada THEN después de la
+        condición», «se esperaba el punto y coma ';' para terminar la regla».
+  \item \textbf{Ayudas por símbolo:} los símbolos confusos reciben pistas:
+        \texttt{(} $\to$ «los paréntesis no forman parte del lenguaje»,
+        \texttt{=} $\to$ «para comparar igualdad use '=='».
+  \item \textbf{Sugerencias contextuales del parser:} si después de una
+        acción aparece un \texttt{ID}, el parser sugiere «Si hay otra acción,
+        sepárela con una coma (',').»; si falta \texttt{THEN} con un
+        identificador en curso, sugiere un operador \texttt{AND}/\texttt{OR}.
+\end{itemize}
+
+\subsection{Ejemplos}
+Los mensajes de la salida de error estándar son literales, obtenidos ejecutando
+el analizador tal como se muestra (cada mensaje se imprime en una sola línea;
+el salto de línea en el PDF corresponde al ajuste del bloque).
+
+\begin{lstlisting}
+> python src/parser.py "WHEN luz < 100 THEN abrir puerta"
+Error sintáctico en línea 1, columna 33: se esperaba el punto y coma ';' para terminar la regla; se encontró el final de la entrada.
+
+> python src/parser.py "WHEN luz = 100 THEN abrir puerta;"
+Error sintáctico en línea 1, columna 10: se esperaba un operador relacional (>, <, >=, <=, ==, !=); se encontró el símbolo no reconocido '=' (para comparar igualdad use '==').
+
+> python src/parser.py "WHEN luz < 100 abrir puerta;"
+Error sintáctico en línea 1, columna 16: se esperaba la palabra reservada THEN después de la condición; se encontró el identificador 'abrir'. Si la condición continúa, falta un operador AND u OR.
+
+> python src/parser.py "WHEN temperatura > 30 THEN encender ventilador abrir puerta;"
+Error sintáctico en línea 1, columna 48: se esperaba el punto y coma ';' para terminar la regla; se encontró el identificador 'abrir'. Si hay otra acción, sepárela con una coma (',').
+
+> python src/parser.py ""
+Error sintáctico en línea 1, columna 1: la entrada está vacía; se esperaba al menos una regla iniciada por WHEN.
+
+> python src/parser.py
+Uso: python src/parser.py "<programa>"
+\end{lstlisting}
+
+\subsection{Cobertura}
+La suite \texttt{tests/test\_errores.py} contiene \textbf{30 pruebas} que
+verifican los mensajes, las posiciones y los códigos de salida ante entradas
+inválidas, ejecutándose con \texttt{python tests/test\_errores.py} o como
+parte de \texttt{python -m unittest discover -s tests -v}.
+
+% =====================================================
+\section{Casos de prueba}
+% =====================================================
+
+\subsection{Estructura de la matriz}
+La matriz completa tiene \textbf{46 casos}: \textbf{25} entradas válidas y
+\textbf{21} inválidas, organizados en 13 casos funcionales válidos (\texttt{V}),
+14 funcionales inválidos (\texttt{I}), 9 casos límite (\texttt{L}) y 10 casos
+de la extensión creativa (\texttt{E}, 5 válidos y 5 inválidos). Se ejecuta con
+\texttt{python tests/test\_parser.py} y se regenera con la opción
+\texttt{-{}-tabla tests/casos\_prueba.md}.
+
+En las entradas válidas también se comprueba la \emph{cantidad de reglas y
+acciones} del AST, no solo la aceptación. La tabla completa está en
+\texttt{tests/casos\_prueba.md} del repositorio; a continuación se muestra
+una selección representativa:
+
+\begin{longtable}{llp{7.2cm}}
+\caption{Selección representativa de la matriz de 46 casos.}
+\label{tab:casos}\\
+\toprule
+\textbf{ID} & \textbf{Cat.} & \textbf{Entrada / Verificación} \\
+\midrule
+\endhead
+V01 & Válida & \texttt{WHEN luz < 100 THEN abrir puerta;} — regla mínima. \\
+V08 & Válida & \texttt{WHEN temperatura > 30 OR ventilacion == FALSE THEN encender ventilador, abrir puerta;} — \texttt{OR} + extensión. \\
+V11 & Válida & \texttt{when LUZ < 100 then abrir puerta;} — reservadas en minúsculas. \\
+V12 & Válida & \texttt{WHEN temperatura == 000000 THEN encender calefactor;} — número con ceros. \\
+V13 & Válida & \texttt{WHEN humedad >= 80 AND ventilacion != TRUE OR movimiento == FALSE THEN ...} — precedencia \texttt{AND} sobre \texttt{OR}. \\
+I03 & Inválida & \texttt{WHEN luz < THEN abrir puerta;} — falta el valor. \\
+I05 & Inválida & \texttt{WHEN luz < 100 THEN abrir;} — acción sin dispositivo. \\
+I08 & Inválida & \texttt{WHEN luz < 100 THEN abrir puerta,, encender lampara;} — comas consecutivas. \\
+I10 & Inválida & \texttt{WHEN luz < 100 THEN abrir puerta @;} — símbolo no perteneciente al alfabeto, marcado por el lexer como token \texttt{ERROR}. \\
+I12 & Inválida & \texttt{WHEN luz = 100 THEN abrir puerta;} — la igualdad requiere \texttt{==}. \\
+L03 & Límite & Cadena profunda de 9 comparaciones con \texttt{AND}. \\
+L05 & Límite & Rutina de 5 acciones en una sola regla. \\
+L08 & Límite & \texttt{""} — entrada vacía: límite inferior del lenguaje. \\
+L09 & Límite & Solo espacios: el lexer produce únicamente \texttt{EOF}. \\
+E02 & Extensión & \texttt{WHEN luz < 100 THEN abrir puerta, encender lampara, cerrar ventana;} — rutina de 3 acciones. \\
+E09 & Extensión & \texttt{WHEN temperatura > 30 THEN encender ventilador,, abrir puerta;} — dos comas consecutivas. \\
+\bottomrule
+\end{longtable}
+
+Los casos límite \texttt{L08} y \texttt{L09} representan el límite inferior
+del lenguaje: el programa exige al menos una regla, por lo que la entrada
+vacía y la entrada con solo espacios deben ser rechazadas.
+
+% =====================================================
+\section{Conclusiones}
+% =====================================================
+
+\subsection{Resultados principales}
+\begin{itemize}
+  \item La gramática resultado es \textbf{estrictamente LL(1)}: la factorización
+        de \texttt{lista\_reglas} y la recursión derecha en los no terminales
+        \texttt{\_prima} eliminaron el único conflicto FIRST/FIRST, y la
+        extensión de múltiples acciones se integró sin conflictos porque
+        \texttt{COMA} $\notin$ \texttt{FOLLOW(acciones\_prima)}.
+  \item La especificación, los documentos de diseño y el código coinciden:
+        la tabla predictiva es un reflejo directo de los métodos del parser y
+        la matriz de 46 casos se pasa completa, lo que asegura la coherencia
+        transversal exigida por la rúbrica.
+  \item El enfoque de especificar primero (lenguaje $\to$ gramática $\to$
+        análisis $\to$ FIRST/FOLLOW $\to$ tabla) y después implementar hizo
+        que el descenso recursivo fuera casi mecánico de escribir y fácil de
+        verificar.
+  \item La calidad de los mensajes de error agrega valor real al DSL: indicar
+        posición exacta, qué se esperaba y ofrecer sugerencias contextuales
+        (coma faltante, \texttt{==} en vez de \texttt{=}).
+  \item Trabajo futuro: un analizador semántico que valide la existencia de
+        sensores y actuadores y la compatibilidad de tipos, la recuperación
+        de errores en modo pánico para reportar varios errores por
+        ejecución, y un intérprete que ejecute las rutinas de acciones.
+\end{itemize}
+
+% =====================================================
+\appendix
+% =====================================================
+
+\section{Anexos}
+% =====================================================
+
+\subsection{Repositorio del proyecto}
+\url{https://github.com/HJFlash/Proyecto-TC-2026}
+
+La documentación de diseño asociada, con la que este informe fue redactado y
+verificado, se encuentra en el directorio \texttt{docs/} del repositorio:
+\begin{itemize}
+  \item \texttt{docs/lenguaje.md} — definición del lenguaje y tokens.
+  \item \texttt{docs/extension.md} — registro de la extensión creativa.
+  \item \texttt{docs/gramatica.md} — gramática libre de contexto y derivaciones.
+  \item \texttt{docs/analisis\_gramatica.md} — análisis de la gramática.
+  \item \texttt{docs/first\_follow.md} — conjuntos FIRST y FOLLOW.
+  \item \texttt{docs/tabla\_ll1.md} — tabla predictiva LL(1).
+\end{itemize}
+
+\subsection{Capturas de pantalla}
+\textbf{Por completar.} Las capturas de las ejecuciones reales (ejecución
+válida con el árbol generado, ejecución inválida con el mensaje de error, y
+el paso de las 46 pruebas de la matriz) se tomarán y agregarán en la issue
+siguiente. Para copiar las imágenes basta ejecutar los comandos del
+anexo~\ref{sec:anexo-reproduccion} y capturar las consolas correspondientes.
+
+\subsection{Cómo reproducir los resultados}
+\label{sec:anexo-reproduccion}
+\begin{lstlisting}
+# Clonar e instalar
+git clone https://github.com/HJFlash/Proyecto-TC-2026.git
+cd Proyecto-TC-2026
+python -m venv .venv && .venv/Scripts/Activate.ps1  # Windows
+# (o: source .venv/bin/activate)                     # Linux/macOS
+
+# Matriz completa de 46 casos
+python tests/test_parser.py
+
+# Pruebas de manejo de errores (30)
+python tests/test_errores.py
+
+# Suite de unittest
+python -m unittest discover -s tests -v
+\end{lstlisting}
+
+\subsection{Estructura del código}
+\begin{lstlisting}
+src/
+  lexer.py      # Analizador lexico: cadena -> tokens
+  parser.py     # Parser LL(1) por descenso recursivo -> AST
+  errores.py    # Excepcion y mensajes de error sintactico
+  arbol.py      # Nodos del AST e impresion jerarquica
+tests/
+  casos_prueba.md   # Matriz de 46 casos (generable con --tabla)
+  test_parser.py    # Ejecucion de la matriz
+  test_errores.py   # 30 pruebas de manejo de errores
+\end{lstlisting}
+
+\end{document}
