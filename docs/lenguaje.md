@@ -25,7 +25,7 @@ La versión base permite:
 - Combinar comparaciones con `AND`, `OR` y `NOT`.
 - Ejecutar una acción por regla, indicando un verbo y un dispositivo.
 
-Quedan fuera de esta versión los paréntesis, las comas, los comentarios, las acciones múltiples y las acciones con parámetros. La validez sintáctica no verifica la existencia real de sensores o actuadores ni la compatibilidad de tipos; esa validación es semántica y queda fuera del alcance del proyecto.
+Quedan fuera de esta versión los paréntesis, los comentarios y las acciones con parámetros. La extensión creativa permite múltiples acciones separadas por comas. La validez sintáctica no verifica la existencia real de sensores o actuadores ni la compatibilidad de tipos; esa validación es semántica y queda fuera del alcance del proyecto.
 
 ## 2. Alternativas de dominio y decisión
 
