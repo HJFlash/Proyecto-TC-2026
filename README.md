@@ -43,6 +43,7 @@ src/
 tests/
   casos_prueba.md        # Tabla de casos de prueba
   test_parser.py         # Ejecución automática de pruebas
+  test_errores.py        # Pruebas del manejo de errores
 informe/
   main.tex               # Informe en LaTeX
   capturas/              # Capturas de la demostración
@@ -95,7 +96,20 @@ _(por definir: formato de entrada, uso por archivo o modo interactivo)_
 python tests/test_parser.py
 ```
 
-Los casos de prueba (válidos, inválidos y límite) están documentados en `tests/casos_prueba.md`.
+El script ejecuta la matriz de 46 casos: 25 entradas válidas y 21 inválidas,
+con 9 casos límite y 10 casos de la extensión creativa. Muestra el detalle de
+los fallos y devuelve código de salida `0` solo cuando todos pasan. La tabla
+completa está en `tests/casos_prueba.md` y puede regenerarse con:
+
+```powershell
+python tests/test_parser.py --tabla
+```
+
+Las pruebas del manejo de errores se ejecutan aparte:
+
+```powershell
+python tests/test_errores.py
+```
 
 ## Restricciones del proyecto
 

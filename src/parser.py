@@ -251,6 +251,12 @@ def validar(texto: str) -> bool:
         return False
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Evita UnicodeEncodeError cuando la consola no soporta los símbolos del
+    # árbol (por ejemplo, cp1252 en Windows).
+    for flujo in (sys.stdout, sys.stderr):
+        if hasattr(flujo, "reconfigure"):
+            flujo.reconfigure(errors="replace")
+
     argumentos = list(sys.argv[1:] if argv is None else argv)
     if not argumentos:
         print('Uso: python src/parser.py "<programa>"', file=sys.stderr)
