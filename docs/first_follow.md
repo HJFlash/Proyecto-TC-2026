@@ -1,6 +1,6 @@
 # Conjuntos FIRST y FOLLOW
 
-Los cálculos se basan en la gramática factorizada para eliminar la recursión y ambigüedad.
+Los cálculos se basan en la gramática factorizada, que mantiene la recursión por la derecha y resuelve el conflicto FIRST-FIRST de `lista_reglas`.
 
 ## 1. Conjuntos FIRST
 El conjunto FIRST incluye los terminales con los que puede iniciar una cadena derivada.
@@ -22,7 +22,7 @@ El conjunto FIRST incluye los terminales con los que puede iniciar una cadena de
 
 ## 2. Conjuntos FOLLOW
 El conjunto FOLLOW incluye los terminales que pueden aparecer a la derecha de un no terminal.
-* `FOLLOW(programa)` = `{ $ }` (Fin de cadena)
+* `FOLLOW(programa)` = `{ EOF }` (fin de entrada)
 * `FOLLOW(lista_reglas)` = `{ EOF }`
 * `FOLLOW(lista_reglas_prima)` = `{ EOF }`
 * `FOLLOW(regla)` = `{ WHEN, EOF }`

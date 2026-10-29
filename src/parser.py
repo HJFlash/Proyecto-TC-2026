@@ -29,6 +29,7 @@ __all__ = [
     "validar",
 ]
 
+
 class Parser:
     """Parser LL(1) por descenso recursivo que construye el AST."""
 
@@ -70,6 +71,8 @@ class Parser:
         """Valida la entrada completa y devuelve el nodo raíz del AST (Programa)."""
         ast = self.programa()
         if self.posicion != len(self.tokens):
+            # Salvaguarda defensiva: con el contrato actual ``programa()``
+            # consume siempre el EOF final, por lo que esta rama no se alcanza.
             raise ValueError("La secuencia contiene tokens después de EOF")
         return ast
 
@@ -232,6 +235,7 @@ class Parser:
         ).lexema
         return Accion(verbo, dispositivo)
 
+
 AnalizadorSintactico = Parser
 
 
@@ -244,11 +248,17 @@ def parsear(texto: str) -> Programa:
 
 
 def validar(texto: str) -> bool:
+    """Indica si ``texto`` es un programa sintácticamente válido.
+
+    Devuelve ``False`` tanto ante errores sintácticos como ante entradas
+    demasiado profundas para el parser recursivo.
+    """
     try:
         parsear(texto)
         return True
-    except ErrorSintactico:
+    except (ErrorSintactico, RecursionError):
         return False
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Evita UnicodeEncodeError cuando la consola no soporta los símbolos del
@@ -264,13 +274,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         ast = parsear(" ".join(argumentos))
+        print("Entrada sintácticamente válida. Árbol generado:")
+        ast.imprimir()
     except ErrorSintactico as error:
         print(error, file=sys.stderr)
         return 1
+    except RecursionError:
+        print(
+            "Error: la entrada es demasiado profunda para el parser recursivo.",
+            file=sys.stderr,
+        )
+        return 1
 
-    print("Entrada sintácticamente válida. Árbol generado:")
-    ast.imprimir()
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

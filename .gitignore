@@ -1,5 +1,10 @@
+# Material local del curso; no forma parte del entregable del repositorio.
 anlizador_lexico1.ipynb
 Proyecto_Analisis_Sintactico.md
 Rubrica_Proyecto.md
 __pycache__/
 *.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

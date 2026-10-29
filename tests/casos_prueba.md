@@ -5,7 +5,7 @@ La matriz contiene 46 casos: 25 entradas válidas y 21 inválidas, organizadas e
 creativa `E`. Los 10 casos de extensión incluyen 5 entradas válidas y 5
 inválidas. El resultado obtenido se verifica automáticamente con:
 
-```powershell
+```bash
 python tests/test_parser.py
 ```
 
@@ -77,9 +77,9 @@ porque el programa exige al menos una regla.
 
 El script informa el estado individual de cada caso, muestra el detalle de los
 fallos y devuelve código de salida `0` solo cuando todos coinciden con el
-resultado esperado. La opción `--tabla` regenera esta tabla en formato
-Markdown a partir de los mismos casos:
+resultado esperado. La opción `--tabla` genera este documento Markdown completo
+a partir de los mismos casos:
 
-```powershell
-python tests/test_parser.py --tabla
+```bash
+python tests/test_parser.py --tabla tests/casos_prueba.md
 ```
