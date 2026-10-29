@@ -2,7 +2,7 @@
 
 **Proyecto:** Analizador sintáctico para un DSL — INFO1148, Teoría de la Computación  
 **Integrantes:** Tomás Curihual, Rodrigo Gutierrez, Carlos Huenuman  
-**Estado:** Versión 1.0 para revisión y aprobación de los tres integrantes.
+**Estado:** Versión 1.1 final, implementada y verificada.
 
 ## 1. Dominio y propósito
 
@@ -16,16 +16,18 @@ Diseñar un lenguaje de dominio específico (DSL) declarativo para automatizar u
 
 El lenguaje prioriza la claridad y la facilidad de análisis sintáctico. No es un lenguaje de propósito general: no incluye variables, funciones, aritmética, cadenas de texto, horarios ni control de flujo.
 
-### 1.3 Alcance de la versión base
+### 1.3 Alcance del lenguaje
 
-La versión base permite:
+La versión base del lenguaje es un subconjunto del lenguaje final implementado. La versión base permite:
 
 - Escribir una o más reglas.
 - Comparar sensores con valores numéricos o booleanos.
 - Combinar comparaciones con `AND`, `OR` y `NOT`.
 - Ejecutar una acción por regla, indicando un verbo y un dispositivo.
 
-Quedan fuera de esta versión los paréntesis, los comentarios y las acciones con parámetros. La extensión creativa permite múltiples acciones separadas por comas. La validez sintáctica no verifica la existencia real de sensores o actuadores ni la compatibilidad de tipos; esa validación es semántica y queda fuera del alcance del proyecto.
+El lenguaje final incorpora además la extensión creativa de múltiples acciones por regla, separadas por comas, de modo que una regla puede contener una o más acciones. La extensión es compatible con la versión base: toda regla con una sola acción sigue siendo válida. El registro de la extensión se conserva en `docs/extension.md`.
+
+Quedan fuera del lenguaje los paréntesis, los comentarios y las acciones con parámetros. La validez sintáctica no verifica la existencia real de sensores o actuadores ni la compatibilidad de tipos; esa validación es semántica y queda fuera del alcance del proyecto.
 
 ## 2. Alternativas de dominio y decisión
 
@@ -55,13 +57,13 @@ Acuario y sistema de riego siguen siendo alternativas viables; se conservan en e
 
 ### 3.1 Alfabeto
 
-El alfabeto de la versión base es:
+El alfabeto del lenguaje es:
 
 ```text
-Σ = { A-Z, a-z, 0-9, _, espacio, tab, salto de línea, retorno de carro, >, <, =, !, ; }
+Σ = { A-Z, a-z, 0-9, _, espacio, tab, salto de línea, retorno de carro, >, <, =, !, ;, "," }
 ```
 
-No se incluyen paréntesis, comas, puntos, guiones, comillas, caracteres acentuados ni el símbolo `#`. Los caracteres `=` y `!` solo aparecen como parte de los operadores relacionales compuestos.
+No se incluyen paréntesis, puntos, guiones, comillas, caracteres acentuados ni el símbolo `#`. Los caracteres `=` y `!` solo aparecen como parte de los operadores relacionales compuestos.
 
 Los identificadores son ASCII: se escribe `lampara`, no `lámpara`.
 
@@ -75,7 +77,8 @@ Los identificadores son ASCII: se escribe `lampara`, no `lámpara`.
 | Identificador | `ID` | `[A-Za-z_][A-Za-z0-9_]*` | `humedad` |
 | Número | `NUM` | `[0-9]+` | `100` |
 | Relacional | `OP_REL` | `>=`, `<=`, `==`, `!=`, `>`, `<` | `>=` |
-| Separador | `PUNTO_COMA` | `;` | `;` |
+| Separador | `COMA` | `,` | `,` |
+| Terminador | `PUNTO_COMA` | `;` | `;` |
 | Fin de entrada | `EOF` | interno | — |
 | Ignorado | `ESPACIO` | espacios, tabs y saltos de línea | — |
 | Error | `ERROR` | cualquier otro carácter | `@` |
@@ -93,12 +96,12 @@ Los identificadores son ASCII: se escribe `lampara`, no `lámpara`.
 
 ### 4.1 Palabras reservadas
 
-La versión base tiene siete palabras reservadas:
+El lenguaje tiene siete palabras reservadas:
 
 | Palabra | Función |
 |---|---|
 | `WHEN` | Inicia una regla |
-| `THEN` | Separa la condición de la acción |
+| `THEN` | Separa la condición de la lista de acciones |
 | `AND` | Conjunción lógica binaria |
 | `OR` | Disyunción lógica binaria |
 | `NOT` | Negación lógica de una comparación |
@@ -130,7 +133,7 @@ Los verbos de acción y los destinatarios son identificadores, no palabras reser
 - `NUM`: entero no negativo, formado por uno o más dígitos.
 - `TRUE` y `FALSE`: valores booleanos.
 
-No se admiten números negativos, decimales ni cadenas de texto en la versión base.
+No se admiten números negativos, decimales ni cadenas de texto.
 
 ### 4.4 Operadores
 
@@ -149,11 +152,11 @@ No se admiten números negativos, decimales ni cadenas de texto en la versión b
 - `OR` disyunción
 - `NOT` negación
 
-En total, la versión base tiene nueve operadores.
+En total, el lenguaje tiene nueve operadores.
 
 ### 4.5 Separadores
 
-El punto y coma `;` termina cada regla y es obligatorio. No se usan comas ni otros separadores en la versión base.
+El punto y coma `;` termina cada regla y es obligatorio. La coma `,` separa acciones dentro de una misma regla y solo puede aparecer entre dos acciones; no se usa para separar reglas ni comparaciones.
 
 ### 4.6 Precedencia y restricciones de las comparaciones
 
@@ -162,7 +165,7 @@ El punto y coma `;` termina cada regla y es obligatorio. No se usan comas ni otr
 - Cada comparación tiene exactamente un operador relacional.
 - El lado izquierdo de una comparación es un identificador y el lado derecho es un valor.
 - No se permiten comparaciones encadenadas como `luz < 100 < 200`.
-- No se permiten comparaciones entre dos identificadores en la versión base.
+- No se permiten comparaciones entre dos identificadores.
 
 ## 5. Sentencia principal y múltiples reglas
 
@@ -170,24 +173,29 @@ El punto y coma `;` termina cada regla y es obligatorio. No se usan comas ni otr
 
 ```text
 programa    ::= regla+
-regla       ::= WHEN condicion THEN accion ;
+regla       ::= WHEN condicion THEN acciones ;
 condicion   ::= cond_or
 cond_or     ::= cond_and ( OR cond_and )*
 cond_and    ::= comparacion ( AND comparacion )*
 comparacion ::= [ NOT ] ID OP_REL valor
+acciones    ::= accion ( COMA accion )*
 accion      ::= ID ID
 valor       ::= NUM | TRUE | FALSE
 ```
 
-Esta forma general define la estructura de las sentencias. No es la gramática libre de contexto formal; su construcción y análisis se desarrollan en una etapa posterior del proyecto.
+Esta forma general define la estructura de las sentencias. No es la gramática libre de contexto formal; la versión BNF equivalente, sin notación EBNF, se desarrolla en `docs/gramatica.md` y se analiza en `docs/analisis_gramatica.md`.
 
 ### 5.2 Reglas de composición
 
 - Un programa contiene una o más reglas.
 - Cada regla termina obligatoriamente en `;`.
 - Varias reglas se escriben una después de otra; el punto y coma es el terminador.
-- Cada regla tiene exactamente una acción.
-- La acción se escribe como un verbo seguido de un dispositivo: `abrir puerta`, `encender ventilador`.
+- Cada regla tiene una o más acciones; por lo tanto, debe existir al menos una acción.
+- Las acciones se separan mediante una coma `,`.
+- No se admite una coma antes de la primera acción, después de la última acción ni dos comas consecutivas.
+- Las acciones se ejecutan de izquierda a derecha.
+- Una acción se escribe como un verbo seguido de un dispositivo: `abrir puerta`, `encender ventilador`.
+- Una regla con una sola acción sigue siendo válida y no requiere coma.
 - Una condición puede ser una sola comparación o varias comparaciones unidas por `AND` u `OR`.
 - `NOT` se aplica a la comparación que le sigue.
 - No se permiten reglas vacías ni secuencias como `;;`.
@@ -199,7 +207,7 @@ El analizador determina si una entrada respeta la estructura anterior. La existe
 
 ## 6. Ejemplos
 
-### 6.1 Cinco sentencias válidas
+### 6.1 Seis ejemplos válidos
 
 1. `WHEN luz < 100 AND puerta_cerrada == TRUE THEN abrir puerta;`  
    Compara un sensor numérico y uno booleano, combina con `AND` y ejecuta una acción de dos identificadores.
@@ -213,23 +221,36 @@ El analizador determina si una entrada respeta la estructura anterior. La existe
 4. `WHEN movimiento == TRUE AND NOT alarma_activa == TRUE THEN activar alarma;`  
    Usa `NOT` dentro de una condición compuesta.
 
-5. Programa con dos reglas:
+5. `WHEN temperatura > 30 THEN encender ventilador, abrir puerta;` — ejecuta dos acciones separadas por coma, en orden de izquierda a derecha.
+
+6. Programa con dos reglas:
 
 ```text
 WHEN nivel_alimento < 20 THEN activar comedero;
 WHEN nivel_agua <= 30 THEN activar bebedero;
 ```
 
-Las cinco sentencias cubren los 11 tokens visibles para el parser y los nueve operadores. La quinta demuestra cómo se escriben varias reglas.
+Los seis ejemplos cubren los 12 tokens visibles para el parser y los nueve operadores. El quinto demuestra la extensión de múltiples acciones y el sexto, cómo se escriben varias reglas.
 
-### 6.2 Cinco sentencias inválidas
+### 6.2 Ocho ejemplos inválidos
 
 | # | Entrada | Error esperado | Qué incumple |
 |---|---|---|---|
-| 1 | `WHEN luz < THEN abrir puerta;` | Se esperaba un valor después de `<` | Falta el operando derecho de la comparación |
-| 2 | `WHEN luz < 100 abrir puerta;` | Se esperaba `THEN` | Falta el separador entre condición y acción |
-| 3 | `WHEN luz < 100 THEN abrir puerta` | Se esperaba `;` | Falta el terminador de la regla |
-| 4 | `WHEN THEN abrir puerta;` | Se esperaba un identificador o `NOT` | Falta la condición |
-| 5 | `WHEN luz < 100 THEN abrir;` | Se esperaba un identificador de dispositivo | La acción solo tiene el verbo |
+| 1 | `WHEN luz < THEN abrir puerta;` | Se esperaba un valor (número, `TRUE` o `FALSE`) después del operador `<` | Falta el operando derecho de la comparación |
+| 2 | `WHEN luz < 100 abrir puerta;` | Se esperaba la palabra reservada `THEN` después de la condición | Falta el separador entre condición y acciones |
+| 3 | `WHEN luz < 100 THEN abrir puerta` | Se esperaba el punto y coma `;` para terminar la regla | Falta el terminador de la regla |
+| 4 | `WHEN THEN abrir puerta;` | Se esperaba el inicio de una comparación (`NOT` o un identificador) | Falta la condición |
+| 5 | `WHEN luz < 100 THEN abrir;` | Se esperaba el dispositivo (un identificador) después del verbo `abrir` | La acción solo tiene el verbo |
+| 6 | `WHEN temperatura > 30 THEN encender ventilador,;` | Se esperaba el verbo de la acción (un identificador) | Coma final sin una acción que la siga |
+| 7 | `WHEN temperatura > 30 THEN , encender ventilador;` | Se esperaba el verbo de la acción (un identificador) | Coma inicial antes de la primera acción |
+| 8 | `WHEN temperatura > 30 THEN encender ventilador abrir puerta;` | Se esperaba el punto y coma `;` para terminar la regla; sugerencia: separar la próxima acción con `,` | Falta la coma entre dos acciones |
 
-Las cinco entradas son léxicamente válidas: todos sus símbolos pertenecen al alfabeto y forman tokens reconocidos. Los errores son estrictamente sintácticos.
+Los ocho ejemplos son léxicamente válidos: todos sus símbolos pertenecen al alfabeto y forman tokens reconocidos. Los errores son estrictamente sintácticos. Los casos 6 a 8 corresponden a la extensión de múltiples acciones; el detalle adicional, incluida la doble coma, está en `docs/extension.md`.
+
+### 6.3 Matriz completa de casos de prueba
+
+La matriz completa de 46 casos (25 entradas válidas y 21 inválidas) se encuentra en `tests/casos_prueba.md` y se ejecuta con:
+
+```bash
+python tests/test_parser.py
+```

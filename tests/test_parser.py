@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 from typing import Sequence
+from unittest import TestCase
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
@@ -214,6 +215,23 @@ def ejecutar_caso(caso: Caso) -> tuple[bool, str, str]:
     return True, "Válida", ""
 
 
+class TestMatrizParser(TestCase):
+    """Ejecuta la matriz completa cuando se usa unittest."""
+
+    def test_matriz_completa(self) -> None:
+        for caso in CASOS:
+            with self.subTest(caso=caso.identificador):
+                correcto, obtenido, detalle = ejecutar_caso(caso)
+                esperado = "Válida" if caso.esperado else "Inválida"
+                mensaje = (
+                    f"{caso.identificador}: se esperaba {esperado} y se obtuvo "
+                    f"{obtenido}"
+                )
+                if detalle:
+                    mensaje = f"{mensaje}: {detalle}"
+                self.assertTrue(correcto, mensaje)
+
+
 def _celda_markdown(texto: str) -> str:
     """Escapa un texto para que pueda usarse dentro de una tabla Markdown."""
     return (
@@ -225,59 +243,113 @@ def _celda_markdown(texto: str) -> str:
     )
 
 
-def imprimir_tabla_markdown() -> None:
+ENCABEZADO = r"""# Casos de prueba del parser
+
+La matriz contiene 46 casos: 25 entradas válidas y 21 inválidas, organizadas en
+13 casos `V`, 14 casos `I`, 9 casos límite `L` y 10 casos de la extensión
+creativa `E`. Los 10 casos de extensión incluyen 5 entradas válidas y 5
+inválidas. El resultado obtenido se verifica automáticamente con:
+
+```bash
+python tests/test_parser.py
+```
+
+En las entradas válidas también se comprueba la cantidad de reglas y acciones
+generadas en el AST. Las palabras reservadas pueden escribirse en minúsculas,
+pero los identificadores conservan su distinción entre mayúsculas y minúsculas.
+Las tabulaciones, retornos de carro y saltos de línea se muestran escapados
+como `\t`, `\r` y `\n` para que la entrada sea legible en la tabla.
+"""
+
+PIE = r"""## Cómo interpretar los resultados
+
+- **Válida:** el parser construye el AST sin lanzar `ErrorSintactico`.
+- **Inválida:** el parser lanza `ErrorSintactico` al analizar la entrada.
+- Además de la validez, se comprueba que el AST tenga la cantidad de reglas y
+  acciones indicada en la observación de cada caso.
+
+Los casos `L08` y `L09` representan el límite inferior del lenguaje: una entrada
+vacía y una entrada con solo espacios en blanco. Ambos deben ser rechazados
+porque el programa exige al menos una regla.
+
+El script informa el estado individual de cada caso, muestra el detalle de los
+fallos y devuelve código de salida `0` solo cuando todos coinciden con el
+resultado esperado. La opción `--tabla` genera este documento Markdown completo
+a partir de los mismos casos:
+
+```bash
+python tests/test_parser.py --tabla tests/casos_prueba.md
+```
+"""
+
+USO = "Uso: python tests/test_parser.py [--tabla [ARCHIVO]]"
+
+
+def generar_tabla_markdown() -> str:
     """Genera la tabla Markdown a partir de los mismos casos ejecutados."""
-    print("| ID | Categoría | Entrada | Resultado esperado | "
-          "Resultado obtenido | Observación |")
-    print("|---|---|---|---|---|---|")
+    lineas = [
+        "| ID | Categoría | Entrada | Resultado esperado | "
+        "Resultado obtenido | Observación |",
+        "|---|---|---|---|---|---|",
+    ]
     for caso in CASOS:
         _, obtenido, _ = ejecutar_caso(caso)
         entrada = _celda_markdown(caso.entrada) or '""'
         esperado = "Válida" if caso.esperado else "Inválida"
-        print(
+        lineas.append(
             f"| {caso.identificador} | {caso.categoria} | `{entrada}` | "
             f"{esperado} | {obtenido} | {caso.observacion} |"
         )
+    return "\n".join(lineas)
+
+
+def generar_documento_markdown() -> str:
+    """Genera el documento completo con encabezado, tabla y pie."""
+    return f"{ENCABEZADO}\n{generar_tabla_markdown()}\n\n{PIE}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Ejecuta todos los casos y muestra una tabla resumida."""
+    """Ejecuta los casos o genera el documento Markdown."""
     argumentos = list(sys.argv[1:] if argv is None else argv)
-    if argumentos not in ([], ["--tabla"]):
-        print(
-            "Uso: python tests/test_parser.py [--tabla]",
-            file=sys.stderr,
-        )
-        return 2
 
-    if argumentos == ["--tabla"]:
-        imprimir_tabla_markdown()
-        destino_resumen = sys.stderr
-    else:
-        print("ID   Categoría   Esperado  Obtenido  Estado")
-        print("---  ----------  --------  --------  ------")
-        destino_resumen = sys.stdout
+    if argumentos:
+        if argumentos[0] != "--tabla" or len(argumentos) > 2:
+            print(USO, file=sys.stderr)
+            return 2
+
+        documento = generar_documento_markdown()
+        if len(argumentos) == 1:
+            print(documento, end="")
+            return 0
+
+        destino = Path(argumentos[1])
+        try:
+            # newline="\n" mantiene LF también al regenerar desde Windows.
+            destino.write_text(documento, encoding="utf-8", newline="\n")
+        except OSError as error:
+            print(f"No se pudo escribir {destino}: {error}", file=sys.stderr)
+            return 1
+        return 0
+
+    print("ID   Categoría   Esperado  Obtenido  Estado")
+    print("---  ----------  --------  --------  ------")
 
     fallos: list[tuple[Caso, str]] = []
     for caso in CASOS:
         correcto, obtenido, detalle = ejecutar_caso(caso)
         esperado = "Válida" if caso.esperado else "Inválida"
-        if argumentos == []:
-            estado = "OK" if correcto else "FALLO"
-            print(f"{caso.identificador:<4} {caso.categoria:<10} "
-                  f"{esperado:<8}  {obtenido:<8}  {estado}")
+        estado = "OK" if correcto else "FALLO"
+        print(f"{caso.identificador:<4} {caso.categoria:<10} "
+              f"{esperado:<8}  {obtenido:<8}  {estado}")
         if not correcto:
             fallos.append((caso, detalle))
 
     if fallos:
-        print("\nDetalle de los fallos:", file=destino_resumen)
+        print("\nDetalle de los fallos:")
         for caso, detalle in fallos:
-            print(f"- {caso.identificador}: {detalle}", file=destino_resumen)
+            print(f"- {caso.identificador}: {detalle}")
 
-    print(
-        f"\n{len(CASOS)} casos ejecutados; {len(fallos)} fallos.",
-        file=destino_resumen,
-    )
+    print(f"\n{len(CASOS)} casos ejecutados; {len(fallos)} fallos.")
     return int(bool(fallos))
 
 

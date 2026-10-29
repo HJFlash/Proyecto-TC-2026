@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import random
 import subprocess
 import sys
@@ -290,11 +291,18 @@ class TestCLI(TestCase):
     SCRIPT = str(RAIZ / "src" / "parser.py")
 
     def _correr(self, *args: str) -> subprocess.CompletedProcess:
+        # El hijo escribe en UTF-8 aunque el proceso de pruebas se ejecute con
+        # otra codificación (por ejemplo, PYTHONIOENCODING=cp1252).
+        entorno = os.environ.copy()
+        entorno["PYTHONIOENCODING"] = "utf-8"
         return subprocess.run(
             [self.INTERPRETE, self.SCRIPT, *args],
             cwd=str(RAIZ),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=entorno,
         )
 
     def test_valido_devuelve_0(self) -> None:

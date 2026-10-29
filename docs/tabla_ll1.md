@@ -1,6 +1,6 @@
 # Tabla Predictiva LL(1)
 
-A partir de los conjuntos FIRST y FOLLOW calculados previamente, se construye la tabla de análisis predictivo mapeando cada No Terminal y Token hacia su respectiva regla de producción[cite: 5]. 
+A partir de los conjuntos FIRST y FOLLOW calculados previamente, se construye la tabla de análisis predictivo mapeando cada No Terminal y Token hacia su respectiva regla de producción. La tabla corresponde a la gramática factorizada presentada en `docs/gramatica.md`.
 
 ## 1. Tabla de parsing
 
@@ -33,4 +33,4 @@ Las celdas vacías (intersecciones no listadas) corresponden a errores sintácti
 
 ## 2. Validación de la propiedad LL(1)
 
-La gramática es estrictamente LL(1)[cite: 5]. Tras la factorización por la izquierda aplicada en la issue anterior, no existen conflictos en la tabla; ninguna combinación de No Terminal y Token genera más de una producción posible[cite: 5]. El parser siempre podrá predecir la derivación correcta basándose en un único token de anticipación (lookahead).
+La gramática es estrictamente LL(1). Tras la factorización por la izquierda aplicada en la issue anterior, no existen conflictos en la tabla; ninguna combinación de No Terminal y Token genera más de una producción posible. El parser siempre podrá predecir la derivación correcta basándose en un único token de anticipación (lookahead).

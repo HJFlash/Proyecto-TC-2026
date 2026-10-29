@@ -1,10 +1,10 @@
 # Análisis de la gramática libre de contexto
 
 ## 1. Recursión por la izquierda
-La gramática original no presenta recursión por la izquierda (ni directa ni indirecta). Las producciones recursivas (`cond_or_prima`, `cond_and_prima` y `acciones_prima`) utilizan recursión por la derecha, lo cual es totalmente compatible con el análisis predictivo LL(1).
+La gramática original, antes de la factorización, no presenta recursión por la izquierda (ni directa ni indirecta). Sus producciones recursivas (`cond_or_prima`, `cond_and_prima` y `acciones_prima`) utilizan recursión por la derecha. La factorización de la sección 2 agrega `lista_reglas_prima`, que también es recursiva por la derecha. Todo esto es compatible con el análisis predictivo LL(1).
 
 ## 2. Factorización por la izquierda
-La producción `lista_reglas` en la versión base presenta un conflicto FIRST-FIRST:
+La producción `lista_reglas` de la gramática original (previa a la factorización) presentaba un conflicto FIRST-FIRST:
 `lista_reglas ::= regla lista_reglas | regla`
 
 Ambas alternativas comienzan con el no terminal `regla`, cuyo FIRST es `{ WHEN }`. 

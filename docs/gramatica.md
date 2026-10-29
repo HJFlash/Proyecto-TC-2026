@@ -35,6 +35,7 @@ programa
 ```text
 programa
 lista_reglas
+lista_reglas_prima
 regla
 condicion
 cond_or
@@ -108,8 +109,10 @@ Los espacios, tabulaciones y saltos de línea son ignorados por el lexer.
 ```text
 programa ::= lista_reglas EOF
 
-lista_reglas ::= regla lista_reglas
-               | regla
+lista_reglas ::= regla lista_reglas_prima
+
+lista_reglas_prima ::= regla lista_reglas_prima
+                     | epsilon
 
 regla ::= WHEN condicion THEN acciones PUNTO_COMA
 ```
@@ -151,6 +154,11 @@ Estas producciones establecen la precedencia de los operadores:
 Una comparación siempre tiene la forma `ID OP_REL valor`. Por lo tanto, el lado
 izquierdo debe ser un identificador y el lado derecho debe ser un número o un
 valor booleano.
+
+La gramática es recursiva por la derecha. El AST que construye el parser agrupa
+las operaciones binarias de `AND` y `OR` de izquierda a derecha mientras avanza
+el análisis. Como ambos operadores son asociativos, el valor de verdad no
+cambia; la diferencia es solo la forma de agrupación del árbol.
 
 ### 3.3 Acciones
 
@@ -196,8 +204,9 @@ acciones    ::= accion ( COMA accion )*
 accion      ::= ID ID
 ```
 
-La versión BNF de la sección anterior es la que debe utilizarse para construir
-la tabla LL(1).
+La gramática final que utiliza el parser es la versión BNF factorizada de la
+sección 3, y es la que debe usarse para construir la tabla LL(1). El detalle de
+la transformación se describe en `docs/analisis_gramatica.md`.
 
 ## 5. Derivación de ejemplos válidos
 
@@ -214,16 +223,20 @@ Derivación resumida:
 ```text
 programa
 => lista_reglas EOF
-=> regla EOF
-=> WHEN condicion THEN acciones PUNTO_COMA EOF
-=> WHEN cond_or THEN acciones PUNTO_COMA EOF
-=> WHEN cond_and cond_or_prima THEN acciones PUNTO_COMA EOF
-=> WHEN factor cond_and_prima cond_or_prima THEN acciones PUNTO_COMA EOF
-=> WHEN comparacion cond_and_prima cond_or_prima THEN acciones PUNTO_COMA EOF
-=> WHEN ID OP_REL valor THEN acciones PUNTO_COMA EOF
-=> WHEN luz < 100 THEN acciones PUNTO_COMA EOF
-=> WHEN luz < 100 THEN accion acciones_prima PUNTO_COMA EOF
-=> WHEN luz < 100 THEN ID ID acciones_prima PUNTO_COMA EOF
+=> regla lista_reglas_prima EOF
+=> WHEN condicion THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN cond_or THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN cond_and cond_or_prima THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN factor cond_and_prima cond_or_prima THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN comparacion cond_and_prima cond_or_prima THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN ID OP_REL valor THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN acciones PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN accion acciones_prima PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN ID ID acciones_prima PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN abrir puerta acciones_prima PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN abrir puerta epsilon PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN abrir puerta PUNTO_COMA lista_reglas_prima EOF
+=> WHEN luz < 100 THEN abrir puerta PUNTO_COMA epsilon EOF
 => WHEN luz < 100 THEN abrir puerta PUNTO_COMA EOF
 ```
 
@@ -397,6 +410,7 @@ base.
 La repetición se expresa mediante recursión por la derecha:
 
 ```text
+lista_reglas_prima ::= regla lista_reglas_prima | epsilon
 cond_or_prima ::= OR cond_and cond_or_prima | epsilon
 cond_and_prima ::= AND factor cond_and_prima | epsilon
 acciones_prima ::= COMA accion acciones_prima | epsilon
@@ -409,8 +423,10 @@ Esto permite utilizar la gramática en un parser predictivo LL(1).
 ```text
 programa ::= lista_reglas EOF
 
-lista_reglas ::= regla lista_reglas
-               | regla
+lista_reglas ::= regla lista_reglas_prima
+
+lista_reglas_prima ::= regla lista_reglas_prima
+                     | epsilon
 
 regla ::= WHEN condicion THEN acciones PUNTO_COMA
 
