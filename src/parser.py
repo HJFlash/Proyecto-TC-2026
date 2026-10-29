@@ -7,16 +7,18 @@ Construye el Árbol de Sintaxis Abstracta (AST) de forma concurrente con el aná
 from __future__ import annotations
 from collections.abc import Iterable, Sequence
 import sys
-from typing import NoReturn, Optional
+from typing import NoReturn
 
 if __package__:
     from .lexer import Token, analizar
-    from .arbol import (Programa, Regla, Comparacion, Accion, 
+    from .arbol import (Programa, Regla, Comparacion, Accion,
                         OperacionBinaria, OperacionUnaria)
+    from .errores import ErrorSintactico, describir_tipo
 else:
     from lexer import Token, analizar
-    from arbol import (Programa, Regla, Comparacion, Accion, 
+    from arbol import (Programa, Regla, Comparacion, Accion,
                        OperacionBinaria, OperacionUnaria)
+    from errores import ErrorSintactico, describir_tipo
 
 __all__ = [
     "AnalizadorSintactico",
@@ -26,24 +28,6 @@ __all__ = [
     "parsear_tokens",
     "validar",
 ]
-
-class ErrorSintactico(Exception):
-    """Error de sintaxis localizado en un token de la entrada."""
-    def __init__(self, token: Token, esperado: str) -> None:
-        self.token = token
-        self.esperado = esperado
-
-        if token.tipo == "EOF":
-            encontrado = "fin de entrada"
-        elif token.tipo == "ERROR":
-            encontrado = f"símbolo no reconocido {token.lexema!r}"
-        else:
-            encontrado = f"{token.tipo} {token.lexema!r}"
-
-        super().__init__(
-            f"Error sintáctico en línea {token.linea}, columna {token.columna}: "
-            f"se esperaba {esperado}; se encontró {encontrado}."
-        )
 
 class Parser:
     """Parser LL(1) por descenso recursivo que construye el AST."""
@@ -63,13 +47,24 @@ class Parser:
         self.posicion += 1
         return token
 
-    def consumir(self, tipo: str) -> Token:
+    def consumir(
+        self,
+        tipo: str,
+        esperado: str | None = None,
+        *,
+        sugerencia: str | None = None,
+    ) -> Token:
+        """Consume un token del tipo esperado o reporta un error sintáctico."""
         if self.actual.tipo != tipo:
-            self.error(tipo)
+            self.error(
+                esperado if esperado is not None else describir_tipo(tipo),
+                sugerencia=sugerencia,
+            )
         return self.avanzar()
 
-    def error(self, esperado: str) -> NoReturn:
-        raise ErrorSintactico(self.actual, esperado)
+    def error(self, esperado: str, *, sugerencia: str | None = None) -> NoReturn:
+        """Lanza un error sintáctico indicando lo que se esperaba."""
+        raise ErrorSintactico(self.actual, esperado, sugerencia=sugerencia)
 
     def parse(self) -> Programa:
         """Valida la entrada completa y devuelve el nodo raíz del AST (Programa)."""
@@ -83,6 +78,9 @@ class Parser:
     # ------------------------------------------------------------------
 
     def programa(self) -> Programa:
+        """``programa ::= lista_reglas EOF``."""
+        if self.actual.tipo == "EOF":
+            raise ErrorSintactico.entrada_vacia(self.actual)
         reglas = self.lista_reglas()
         self.consumir("EOF")
         return Programa(reglas)
@@ -98,15 +96,40 @@ class Parser:
             resto = self.lista_reglas_prima()
             return [r] + resto
         elif self.actual.tipo != "EOF":
-            self.error("WHEN o EOF")
+            self.error(
+                "la palabra reservada WHEN para comenzar otra regla "
+                "o el final de la entrada"
+            )
         return []
 
     def regla(self) -> Regla:
+        """``regla ::= WHEN condicion THEN acciones PUNTO_COMA``."""
         self.consumir("WHEN")
         cond = self.condicion()
-        self.consumir("THEN")
+
+        sugerencia_then = None
+        if self.actual.tipo == "ID":
+            sugerencia_then = (
+                "Si la condición continúa, falta un operador AND u OR."
+            )
+        self.consumir(
+            "THEN",
+            "la palabra reservada THEN después de la condición",
+            sugerencia=sugerencia_then,
+        )
+
         accs = self.acciones()
-        self.consumir("PUNTO_COMA")
+
+        sugerencia_pyc = None
+        if self.actual.tipo == "ID":
+            sugerencia_pyc = (
+                "Si hay otra acción, sepárela con una coma (',')."
+            )
+        self.consumir(
+            "PUNTO_COMA",
+            "el punto y coma ';' para terminar la regla",
+            sugerencia=sugerencia_pyc,
+        )
         return Regla(cond, accs)
 
     def condicion(self) -> OperacionBinaria | OperacionUnaria | Comparacion:
@@ -116,51 +139,74 @@ class Parser:
         izq = self.cond_and()
         return self.cond_or_prima(izq)
 
-    def cond_or_prima(self, izq: OperacionBinaria | OperacionUnaria | Comparacion) -> OperacionBinaria | OperacionUnaria | Comparacion:
+    def cond_or_prima(
+        self,
+        izq: OperacionBinaria | OperacionUnaria | Comparacion,
+    ) -> OperacionBinaria | OperacionUnaria | Comparacion:
         if self.actual.tipo == "OR":
             op = self.avanzar().lexema
-            der = self.cond_and()
+            der = self.cond_and(contexto="después de OR")
             nuevo_nodo = OperacionBinaria(op, izq, der)
             return self.cond_or_prima(nuevo_nodo)
-        elif self.actual.tipo != "THEN":
-            self.error("OR o THEN")
         return izq
 
-    def cond_and(self) -> OperacionBinaria | OperacionUnaria | Comparacion:
-        izq = self.factor()
+    def cond_and(
+        self,
+        contexto: str | None = None,
+    ) -> OperacionBinaria | OperacionUnaria | Comparacion:
+        izq = self.factor(contexto)
         return self.cond_and_prima(izq)
 
-    def cond_and_prima(self, izq: OperacionBinaria | OperacionUnaria | Comparacion) -> OperacionBinaria | OperacionUnaria | Comparacion:
+    def cond_and_prima(
+        self,
+        izq: OperacionBinaria | OperacionUnaria | Comparacion,
+    ) -> OperacionBinaria | OperacionUnaria | Comparacion:
         if self.actual.tipo == "AND":
             op = self.avanzar().lexema
-            der = self.factor()
+            der = self.factor(contexto="después de AND")
             nuevo_nodo = OperacionBinaria(op, izq, der)
             return self.cond_and_prima(nuevo_nodo)
-        elif self.actual.tipo not in {"OR", "THEN"}:
-            self.error("AND, OR o THEN")
         return izq
 
-    def factor(self) -> OperacionUnaria | Comparacion:
+    def factor(
+        self,
+        contexto: str | None = None,
+    ) -> OperacionUnaria | Comparacion:
         if self.actual.tipo == "NOT":
             op = self.avanzar().lexema
-            comp = self.comparacion()
+            comp = self.comparacion(contexto="después de NOT")
             return OperacionUnaria(op, comp)
         elif self.actual.tipo == "ID":
-            return self.comparacion()
+            return self.comparacion(contexto)
         else:
-            self.error("NOT o ID")
+            esperado = "el inicio de una comparación (NOT o un identificador)"
+            if contexto:
+                esperado = f"una comparación {contexto}"
+            self.error(esperado)
 
-    def comparacion(self) -> Comparacion:
-        id_izq = self.consumir("ID").lexema
-        op_rel = self.consumir("OP_REL").lexema
-        valor_der = self.valor()
+    def comparacion(
+        self,
+        contexto: str | None = None,
+    ) -> Comparacion:
+        esperado_id = "un identificador (sensor)"
+        if contexto:
+            esperado_id = f"un identificador (sensor) {contexto}"
+
+        id_izq = self.consumir("ID", esperado_id).lexema
+        op_rel = self.consumir(
+            "OP_REL",
+            "un operador relacional (>, <, >=, <=, ==, !=)",
+        ).lexema
+        valor_der = self.valor(op_rel)
         return Comparacion(id_izq, op_rel, valor_der)
 
-    def valor(self) -> str:
+    def valor(self, operador: str) -> str:
         if self.actual.tipo in {"NUM", "TRUE", "FALSE"}:
             return self.avanzar().lexema
         else:
-            self.error("NUM, TRUE o FALSE")
+            self.error(
+                f"un valor (número, TRUE o FALSE) después del operador {operador!r}"
+            )
 
     def acciones(self) -> list[Accion]:
         acc = self.accion()
@@ -173,22 +219,29 @@ class Parser:
             acc = self.accion()
             resto = self.acciones_prima()
             return [acc] + resto
-        elif self.actual.tipo != "PUNTO_COMA":
-            self.error("COMA o PUNTO_COMA")
         return []
 
     def accion(self) -> Accion:
-        verbo = self.consumir("ID").lexema
-        dispositivo = self.consumir("ID").lexema
+        verbo = self.consumir(
+            "ID",
+            "el verbo de la acción (un identificador)",
+        ).lexema
+        dispositivo = self.consumir(
+            "ID",
+            f"el dispositivo (un identificador) después del verbo {verbo!r}",
+        ).lexema
         return Accion(verbo, dispositivo)
 
 AnalizadorSintactico = Parser
 
+
 def parsear_tokens(tokens: Iterable[Token]) -> Programa:
     return Parser(tokens).parse()
 
+
 def parsear(texto: str) -> Programa:
     return parsear_tokens(analizar(texto))
+
 
 def validar(texto: str) -> bool:
     try:
