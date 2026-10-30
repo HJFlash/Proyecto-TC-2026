@@ -18,6 +18,7 @@
 \usepackage{hyperref}
 \usepackage{listings}
 \usepackage{xcolor}
+\usepackage{graphicx}
 
 \hypersetup{
   colorlinks=true,
@@ -819,11 +820,22 @@ verificado, se encuentra en el directorio \texttt{docs/} del repositorio:
 \end{itemize}
 
 \subsection{Capturas de pantalla}
-\textbf{Por completar.} Las capturas de las ejecuciones reales (ejecución
-válida con el árbol generado, ejecución inválida con el mensaje de error, y
-el paso de las 46 pruebas de la matriz) se tomarán y agregarán en la issue
-siguiente. Para copiar las imágenes basta ejecutar los comandos del
-anexo~\ref{sec:anexo-reproduccion} y capturar las consolas correspondientes.
+
+A continuación, se presentan las evidencias de la ejecución del analizador sintáctico y la construcción del Árbol de Sintaxis Abstracta (AST).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{capturas/valida_ast.png}
+    \caption{El parser procesa la entrada, valida la sintaxis e imprime el árbol jerárquico instanciado en memoria.}
+    \label{fig:ast_valido}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{capturas/invalida_error.png}
+    \caption{El parser detecta la ausencia del token esperado (PUNTO\_COMA) y reporta la línea y columna del error sintáctico.}
+    \label{fig:error_sintactico}
+\end{figure}
 
 \subsection{Cómo reproducir los resultados}
 \label{sec:anexo-reproduccion}
